@@ -9,6 +9,7 @@ LOGINS = [
     'iskandr',
     'nealsid',
     'timodonnell',
+    'smondet',
 ]
 EVENT_TYPES = {
     'CreateEvent': ['ref_type', 'ref', 'description', 'master_branch', 'pusher_type'],
