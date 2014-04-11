@@ -15,32 +15,36 @@ MEMBERS = [
     'smondet',
 ]
 EVENT_TYPES = {
-    'CreateEvent': ['ref_type', 'ref', 'description', 'master_branch', 'pusher_type'],
-    'IssuesEvent': None,
-    'PullRequestEvent': None,
-    'PushEvent': None,
-    'ReleaseEvent': None,
+    'CreateEvent': [{'ref_type': ['repository', 'branch', 'tag']}, 'ref', 'description', 'master_branch', 'pusher_type'],
+    'IssuesEvent': [{'action': ['opened', 'closed', 'reopened']}, 'issue'],
+    'PullRequestEvent': [{'action': ['opened', 'closed', 'reopened', 'synchronize']}, 'number', 'pull_request'],
+    'PushEvent': ['head', 'ref', 'size', 'commits'],
+    'ReleaseEvent': [{'action': 'published'}, 'release'],
 }
 
 github_user = os.environ.get('GITHUB_USER')
 github_password = os.environ.get('GITHUB_PASSWORD')
 g = Github(github_user, github_password)
 
-def get_member_events():
+
+def to_dt(s):
+    return dt.strptime(s, "%a, %d %b %Y %H:%M:%S %Z")
+
+
+def get_lab_events():
     df = []
-    for member in g.get_organization(LAB).get_members():
-        if member.login in MEMBERS:
-            evented_repos = set()
-            evented_repos.update([event.repo.name
-                                  for event in member.get_events()
-                                  if not event.repo.name.startswith(member.login + '/')
-                                  and event.type in EVENT_TYPES.keys()])
-            for repo in evented_repos:
-                df.append({
-                    "member_login": member.login,
-                    "member_name": member.name,
-                    "evented_repo": repo,
-                })
+    lab_members = [m for m in g.get_organization(LAB).get_members() if m.login in MEMBERS]
+    for member in lab_members:
+        member_events = [e for e in member.get_events()
+                         if e.type in EVENT_TYPES.keys()]
+        for event in member_events:
+            df.append({
+                "member": member.login,
+                "last_modified": to_dt(event.last_modified),
+                "repo": event.repo.name,
+                "type": event.type[:-5],
+                "action": event.payload.get("action")
+            })
     return DataFrame(df)
 
 
@@ -48,18 +52,29 @@ def get_lab_branches():
     df = []
     for repo in g.get_organization(LAB).get_repos():
         for branch in repo.get_branches():
-            last_modified = dt.strptime(branch.last_modified, "%a, %d %b %Y %H:%M:%S %Z")
             df.append({
                 "repo": repo.name,
                 "branch": branch.name,
-                "last_modified": last_modified,
+                "last_modified": to_dt(branch.last_modified),
                 "last_commit_author": branch.commit.author.login,
             })
     return DataFrame(df)
 
 
-if __name__ == "__main__":
-    print(get_member_events())
-    print(get_lab_branches())
+def get_lab_commits():
+    df = []
+    last_week = dt.now() - td(days=7)
+    for repo in g.get_organization(LAB).get_repos():
+        for commit in repo.get_commits(since=last_week):
+            if commit.author.login in MEMBERS:
+                df.append({
+                    "repo": repo.name,
+                    "author": commit.author.login,
+                    "message": commit.commit.message,
+                    "last_modified": to_dt(commit.last_modified),
+                    "size": commit.stats.total,
+                })
+    return DataFrame(df)
+
 
 
